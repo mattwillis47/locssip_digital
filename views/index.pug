@@ -1,0 +1,23 @@
+extends layout
+
+block layout-content
+  div.View
+    h1.Banner LocSSIP
+    div.Message
+      div.Title
+        h3 Generate and Compete LocSSIP Forms
+        h1 For any procedure...
+      span.Details LocSSIP portal
+    .Title  Log in 
+    form(action="/login", method="POST")
+      div.FormGroup
+        label(for="username") Username
+        input#username(type="text", name="username", placeholder="Username")
+      div.FormGroup
+        label(for="password") Password
+        input#password(type="password", name="password", placeholder="Password")
+      div.FormGroup
+        button(type="submit") Log in
+    div.NavButtons
+      a(href="/user")
+          div.NavButton Just dive in!
