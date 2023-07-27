@@ -8,7 +8,7 @@ router.post('/api/1.0/users', async (req, res) => {
     return res.status(400).send({
       validationErrors: {
         username: 'Username cannot be null',
-         email: 'Email cannot be null',
+        email: 'Email cannot be null',
       },
     });
   }
