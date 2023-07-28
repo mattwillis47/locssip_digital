@@ -2,7 +2,7 @@ const app = require('./src/app');
 const sequelize = require('./src/config/database');
 const path = require('path');
 
-sequelize.sync();
+sequelize.sync({ force: true });
 
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'pug');
