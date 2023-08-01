@@ -16,7 +16,6 @@ beforeAll(async () => {
       let mailBody;
       stream.on('data', (data) => {
         mailBody += data.toString();
-        //console.log(mailBody.toString());
       });
       stream.on('end', () => {
         if (simulateSmtpFailure) {
@@ -32,7 +31,6 @@ beforeAll(async () => {
 
   await server.listen(8587, 'localhost');
 
-  //console.log(lastMail);
   jest.setTimeout(20000);
 
   await sequelize.sync();
@@ -212,9 +210,6 @@ describe('User Registration', () => {
 
     const users = await User.findAll();
     const savedUser = users[0];
-    console.log(savedUser.username);
-    console.log(lastMail);
-    console.log(savedUser.activationToken);
     expect(lastMail).toContain('pansy75@ethereal.email');
     expect(lastMail).toContain(savedUser.activationToken);
   });
@@ -237,123 +232,173 @@ describe('User Registration', () => {
     const users = await User.findAll();
     expect(users.length).toBe(0);
   });
+
+  it('returns validation failure message in error response bpdy when validation fails', async () => {
+    const response = await postUser({
+      username: null,
+      email: validUser.email,
+      password: 'P4sswo^^bjdkbkjdkdrd',
+    });
+    expect(response.body.message).toBe('Validation failure');
+  });
+
+  describe('Internationalisation', () => {
+    const username_null = 'لا يمكن أن يكون اسم المستخدم فارغًا';
+    const username_size = 'يجب ألا يقل اسم المستخدم عن 4 أحرف ولا يزيد عن 32 حرفًا';
+    const email_null = 'لا يمكن أن يكون البريد الإلكتروني فارغًا';
+    const email_invalid = 'البريد الإلكتروني غير صالح';
+    const password_null = 'لا يمكن أن تكون كلمة المرور فارغة';
+    const password_size = 'يجب ألا تقل كلمة المرور عن 8 أحرف ولا تزيد عن 50 حرفًا';
+    const password_pattern =
+      'يجب أن تتضمن كلمة المرور حرفًا صغيرًا واحدًا وحرفًا كبيرًا ورقمًا واحدًا ورمزًا واحدًا على الأقل';
+    const email_in_use = 'البريد الإلكتروني قيد الاستخدام';
+    const user_create_success = 'تم إنشاء المستخدم';
+    const email_failure = 'فشل إرسال البريد الإلكتروني';
+    const validation_failure = 'فشل التحقق من الصحة';
+
+    it.each`
+      field         | value                      | expectedMessage
+      ${'username'} | ${null}                    | ${username_null}
+      ${'username'} | ${'usr'}                   | ${username_size}
+      ${'username'} | ${'a'.repeat(33)}          | ${username_size}
+      ${'email'}    | ${null}                    | ${email_null}
+      ${'email'}    | ${'mail.com'}              | ${email_invalid}
+      ${'email'}    | ${'usr.mail.com'}          | ${email_invalid}
+      ${'email'}    | ${'user@mail'}             | ${email_invalid}
+      ${'password'} | ${null}                    | ${password_null}
+      ${'password'} | ${'P4ssw'}                 | ${password_size}
+      ${'password'} | ${'P4ssw'.repeat(12)}      | ${password_size}
+      ${'password'} | ${'alllowercase'}          | ${password_pattern}
+      ${'password'} | ${'INappropriatePassword'} | ${password_pattern}
+      ${'password'} | ${'1'.repeat(43)}          | ${password_pattern}
+    `(
+      'it returns $expectedMessage when $field is $value when language is set as arabic',
+      async ({ field, value, expectedMessage }) => {
+        const user = {
+          username: 'user1',
+          email: 'user1@mail.com',
+          password: 'P4ssword',
+        };
+        user[field] = value;
+        const response = await postUser(user, { language: 'ar' });
+        const body = response.body;
+        expect(body.validationErrors[field]).toBe(expectedMessage);
+      }
+    );
+
+    it(`returns ${email_in_use} when same email is already in use when language is set as arabic`, async () => {
+      await User.create({ ...validUser });
+      const response = await postUser({ ...validUser }, { language: 'ar' });
+      expect(response.body.validationErrors.email).toBe(email_in_use);
+    });
+
+    it(`returns success message of ${user_create_success} when signup request is valid and language is set as arabic`, async () => {
+      const response = await postUser({ ...validUser }, { language: 'ar' });
+      expect(response.body.message).toBe(user_create_success);
+    });
+
+    it(`returns ${email_failure} message when sending email fails in arabic`, async () => {
+      simulateSmtpFailure = true;
+      const repsonse = await postUser({ ...validUser }, { language: 'ar' });
+      expect(repsonse.body.message).toBe(email_failure);
+    });
+
+    it(`returns ${validation_failure} failure message in error response bpdy when validation fails in arabic`, async () => {
+      const response = await postUser(
+        {
+          username: null,
+          email: validUser.email,
+          password: 'P4sswo^^bjdkbkjdkdrd',
+        },
+        { language: 'ar' }
+      );
+      expect(response.body.message).toBe(validation_failure);
+    });
+  });
+  describe('Account Activation', () => {
+    it('activates the accouint when correct token is sent', async () => {
+      await postUser();
+      let users = await User.findAll();
+      const token = users[0].activationToken;
+
+      await request(app).post(`/api/1.0/users/token/${token}`).send();
+      users = await User.findAll();
+      expect(users[0].inactive).toBe(false);
+    });
+    it('removes the token from user table after successful activation', async () => {
+      await postUser();
+      let users = await User.findAll();
+      const token = users[0].activationToken;
+
+      await request(app).post(`/api/1.0/users/token/${token}`).send();
+      users = await User.findAll();
+      expect(users[0].activationToken).toBeFalsy();
+    });
+    it('does not activate the account when token is wrong', async () => {
+      await postUser();
+      const token = 'wrong-token';
+
+      await request(app).post(`/api/1.0/users/token/${token}`).send();
+      const users = await User.findAll();
+      expect(users[0].inactive).toBe(true);
+    });
+
+    it('returns bad request (400) when token is wroing', async () => {
+      await postUser();
+      const token = 'wrong-token';
+      const response = await request(app).post(`/api/1.0/users/token/${token}`).send();
+      expect(response.status).toBe(400);
+    });
+
+    it.each`
+      language | tokenStatus  | message
+      ${'ar'}  | ${'wrong'}   | ${'رمز التنشيط غير صالح'}
+      ${'en'}  | ${'wrong'}   | ${'Activation token is not valid'}
+      ${'ar'}  | ${'correct'} | ${'تم تنشيط الحساب'}
+      ${'en'}  | ${'correct'} | ${'Account activated'}
+    `(
+      'return $message when token is $tokenStatus and language is $language',
+      async ({ language, tokenStatus, message }) => {
+        await postUser();
+        let token = 'wrong-token';
+        if (tokenStatus === 'correct') {
+          let users = await User.findAll();
+          token = users[0].activationToken;
+        }
+        const response = await request(app)
+          .post(`/api/1.0/users/token/${token}`)
+          .set('Accept-Language', language)
+          .send();
+        expect(response.body.message).toBe(message);
+      }
+    );
+  });
 });
-
-describe('Internationalisation', () => {
-  const username_null = 'لا يمكن أن يكون اسم المستخدم فارغًا';
-  const username_size = 'يجب ألا يقل اسم المستخدم عن 4 أحرف ولا يزيد عن 32 حرفًا';
-  const email_null = 'لا يمكن أن يكون البريد الإلكتروني فارغًا';
-  const email_invalid = 'البريد الإلكتروني غير صالح';
-  const password_null = 'لا يمكن أن تكون كلمة المرور فارغة';
-  const password_size = 'يجب ألا تقل كلمة المرور عن 8 أحرف ولا تزيد عن 50 حرفًا';
-  const password_pattern =
-    'يجب أن تتضمن كلمة المرور حرفًا صغيرًا واحدًا وحرفًا كبيرًا ورقمًا واحدًا ورمزًا واحدًا على الأقل';
-  const email_in_use = 'البريد الإلكتروني قيد الاستخدام';
-  const user_create_success = 'تم إنشاء المستخدم';
-  const email_failure = 'فشل إرسال البريد الإلكتروني';
-
-  it.each`
-    field         | value                      | expectedMessage
-    ${'username'} | ${null}                    | ${username_null}
-    ${'username'} | ${'usr'}                   | ${username_size}
-    ${'username'} | ${'a'.repeat(33)}          | ${username_size}
-    ${'email'}    | ${null}                    | ${email_null}
-    ${'email'}    | ${'mail.com'}              | ${email_invalid}
-    ${'email'}    | ${'usr.mail.com'}          | ${email_invalid}
-    ${'email'}    | ${'user@mail'}             | ${email_invalid}
-    ${'password'} | ${null}                    | ${password_null}
-    ${'password'} | ${'P4ssw'}                 | ${password_size}
-    ${'password'} | ${'P4ssw'.repeat(12)}      | ${password_size}
-    ${'password'} | ${'alllowercase'}          | ${password_pattern}
-    ${'password'} | ${'INappropriatePassword'} | ${password_pattern}
-    ${'password'} | ${'1'.repeat(43)}          | ${password_pattern}
-  `(
-    'it returns $expectedMessage when $field is $value when language is set as arabic',
-    async ({ field, value, expectedMessage }) => {
-      const user = {
-        username: 'user1',
-        email: 'user1@mail.com',
-        password: 'P4ssword',
-      };
-      user[field] = value;
-      const response = await postUser(user, { language: 'ar' });
-      const body = response.body;
-      expect(body.validationErrors[field]).toBe(expectedMessage);
-    }
-  );
-
-  it(`returns ${email_in_use} when same email is already in use when language is set as arabic`, async () => {
-    await User.create({ ...validUser });
-    const response = await postUser({ ...validUser }, { language: 'ar' });
-    expect(response.body.validationErrors.email).toBe(email_in_use);
+describe('Error Model', () => {
+  it('returns path, timestamp, message and validationErrors in response when  there is validation failure', async () => {
+    const response = await postUser({ ...validUser, username: null });
+    const body = response.body;
+    expect(Object.keys(body)).toEqual(['path', 'timestamp', 'message', 'validationErrors']);
   });
-
-  it(`returns success message of ${user_create_success} when signup request is valid and language is set as arabic`, async () => {
-    const response = await postUser({ ...validUser }, { language: 'ar' });
-    expect(response.body.message).toBe(user_create_success);
-  });
-
-  it(`returns ${email_failure} message when sending email fails in arabic`, async () => {
-    simulateSmtpFailure = true;
-    const repsonse = await postUser({ ...validUser }, { language: 'ar' });
-    expect(repsonse.body.message).toBe(email_failure);
-  });
-});
-describe('Account Activation', () => {
-  it('activates the accouint when correct token is sent', async () => {
-    await postUser();
-    let users = await User.findAll();
-    const token = users[0].activationToken;
-
-    await request(app).post(`/api/1.0/users/token/${token}`).send();
-    users = await User.findAll();
-    expect(users[0].inactive).toBe(false);
-  });
-  it('removes the token from user table after successful activation', async () => {
-    await postUser();
-    let users = await User.findAll();
-    const token = users[0].activationToken;
-
-    await request(app).post(`/api/1.0/users/token/${token}`).send();
-    users = await User.findAll();
-    expect(users[0].activationToken).toBeFalsy();
-  });
-  it('does not activate the account when token is wrong', async () => {
-    await postUser();
-    const token = 'wrong-token';
-
-    await request(app).post(`/api/1.0/users/token/${token}`).send();
-    const users = await User.findAll();
-    expect(users[0].inactive).toBe(true);
-  });
-
-  it('returns bad request (400) when token is wroing', async () => {
-    await postUser();
+  it('returns path, timestamp and emssage in response when request fails other than validation error', async () => {
     const token = 'wrong-token';
     const response = await request(app).post(`/api/1.0/users/token/${token}`).send();
-    expect(response.status).toBe(400);
+    const body = response.body;
+    expect(Object.keys(body)).toEqual(['path', 'timestamp', 'message']);
   });
-
-  it.each`
-    language | tokenStatus  | message
-    ${'ar'}  | ${'wrong'}   | ${'رمز التنشيط غير صالح'}
-    ${'en'}  | ${'wrong'}   | ${'Activation token is not valid'}
-    ${'ar'}  | ${'correct'} | ${'تم تنشيط الحساب'}
-    ${'en'}  | ${'correct'} | ${'Account activated'}
-  `(
-    'return $message when token is $tokenStatus and language is $language',
-    async ({ language, tokenStatus, message }) => {
-      await postUser();
-      let token = 'wrong-token';
-      if (tokenStatus === 'correct') {
-        let users = await User.findAll();
-        token = users[0].activationToken;
-      }
-      const response = await await request(app)
-        .post(`/api/1.0/users/token/${token}`)
-        .set('Accept-Language', language)
-        .send();
-      expect(response.body.message).toBe(message);
-    }
-  );
+  it('returns path in error body', async () => {
+    const token = 'wrong-token';
+    const response = await request(app).post(`/api/1.0/users/token/${token}`).send();
+    const body = response.body;
+    expect(body.path).toEqual(`/api/1.0/users/token/${token}`);
+  });
+  it('returns timestamp in milliseconds within 5 seconds value in error body', async () => {
+    const nowInMillis = new Date().getTime();
+    const fiveSecondsLater = nowInMillis + 5 * 1000;
+    const token = 'wrong-token';
+    const response = await request(app).post(`/api/1.0/users/token/${token}`).send();
+    const body = response.body;
+    expect(body.timestamp).toBeGreaterThan(nowInMillis);
+    expect(body.timestamp).toBeLessThan(fiveSecondsLater);
+  });
 });

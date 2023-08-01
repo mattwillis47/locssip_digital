@@ -12,5 +12,6 @@
     "user_create_success": "تم إنشاء المستخدم",
     "email_failure": "فشل إرسال البريد الإلكتروني",
     "account_activation_failure": "رمز التنشيط غير صالح",
-    "account_activation_success": "تم تنشيط الحساب"
+    "account_activation_success": "تم تنشيط الحساب",
+    "validation_failure": "فشل التحقق من الصحة"
 }

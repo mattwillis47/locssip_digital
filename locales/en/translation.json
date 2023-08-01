@@ -10,5 +10,6 @@
     "user_create_success": "User created",
     "email_failure": "Email failure",
     "account_activation_failure": "Activation token is not valid",
-    "account_activation_success": "Account activated"
+    "account_activation_success": "Account activated",
+    "validation_failure": "Validation failure"
 }
